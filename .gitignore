@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.ipynb_checkpoints/
+
+# Environments
+.pixi/
+.venv/
+venv/
+env/
+.env
+
+# Torch / training artifacts
+*.pt
+*.pth
+*.ckpt
+/checkpoints/
+/runs/
+wandb/
+lightning_logs/
+tensorboard/
+
+# Data (leading slash so it does not swallow src/twm/data/)
+/data/
+*.npz
+*.npy
+*.hdf5
+
+# MetaDrive downloads its asset pack (~200MB) into the installed package dir,
+# but older versions drop it here instead.
+assets/
+
+# Generated media, except the small committed figures under results/
+*.mp4
+*.gif
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

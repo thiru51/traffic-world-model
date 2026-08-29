@@ -1,0 +1,33 @@
+[project]
+name = "traffic-world-model"
+version = "0.1.0"
+description = "Compact latent world model (DreamerV3-style RSSM) for traffic-scene anticipation on a single 12GB consumer GPU"
+authors = ["Thiru <fearlesspirate007@gmail.com>"]
+channels = ["conda-forge", "pytorch", "nvidia"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+pip = "*"
+
+[activation.env]
+PYTHONPATH = "src"
+# MetaDrive's top-down observation renders through pygame's software surface. Without
+# this SDL forces an X11 connection and dies on headless boxes / over SSH.
+SDL_VIDEODRIVER = "dummy"
+
+[pypi-dependencies]
+torch = { version = ">=2.5,<2.9", index = "https://download.pytorch.org/whl/cu124" }
+metadrive-simulator = ">=0.4.2.3"
+numpy = "<2"
+pyyaml = "*"
+tqdm = "*"
+matplotlib = "*"
+imageio = "*"
+
+[tasks]
+smoke = "python -m twm.smoke"
+collect-data = "python -m twm.collect"
+train = "python -m twm.train"
+eval-rollout = "python -m twm.eval_rollout"
+prescreen = "python -m twm.prescreen"

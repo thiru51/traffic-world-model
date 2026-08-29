@@ -1,0 +1,50 @@
+# Defaults tuned for a 12GB consumer GPU (developed on an RTX 4080 Laptop).
+# Every entry here mirrors a field in src/twm/config.py.
+
+model:
+  cnn_depth: 24
+  deter: 512
+  stoch: 32
+  classes: 32
+  hidden: 384
+  unimix: 0.01
+  n_bins: 255
+  kl_free: 1.0
+  dyn_scale: 0.5
+  rep_scale: 0.1
+
+ac:
+  hidden: 384
+  horizon: 15
+  gamma: 0.997
+  lam: 0.95
+  entropy_coef: 0.0003
+
+env:
+  resolution: 64
+  frame_stack: 3
+  map_size: 3
+  traffic_density: 0.2
+  num_scenarios: 40
+  start_seed: 0
+
+data:
+  dir: data/metadrive64
+  episodes: 60
+  max_steps_per_episode: 250
+  action_noise: 0.25
+  seed: 0
+
+train:
+  steps: 3000
+  batch_size: 16
+  seq_len: 50
+  lr: 0.0001
+  ac_lr: 0.00003
+  amp: true
+  grad_checkpoint: false
+  train_actor_critic: true
+  log_every: 25
+  ckpt_every: 500
+  out_dir: checkpoints/run1
+  device: cuda
