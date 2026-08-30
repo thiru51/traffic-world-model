@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.distributions import Independent, Normal
 
 from twm.models.nets import TwoHotSymlog, make_bins, mlp
+from twm.utils.device import fp32
 
 
 class Actor(nn.Module):
@@ -20,12 +21,16 @@ class Actor(nn.Module):
 
     def dist(self, feat):
         out = self.net(feat)
-        mean, std = out.chunk(2, -1)
-        mean = torch.tanh(mean)
-        # Bounded std: an unbounded softplus lets the policy widen without limit early on
-        # and the resulting actions saturate the steering channel.
-        std = (self.max_std - self.min_std) * torch.sigmoid(std + 2.0) + self.min_std
-        return Independent(Normal(mean, std), 1)
+        # fp32 from here down: log_prob and entropy of a Gaussian go through log(std),
+        # and the entropy bonus is ~1e-4 of the actor loss, so in bf16 it rounds to
+        # nothing and the policy silently stops being regularised.
+        with fp32():
+            mean, std = out.float().chunk(2, -1)
+            mean = torch.tanh(mean)
+            # Bounded std: an unbounded softplus lets the policy widen without limit
+            # early on and the resulting actions saturate the steering channel.
+            std = (self.max_std - self.min_std) * torch.sigmoid(std + 2.0) + self.min_std
+            return Independent(Normal(mean, std), 1)
 
     def act(self, feat, sample=True):
         d = self.dist(feat)
@@ -74,6 +79,7 @@ class ReturnNormalizer(nn.Module):
 
 def lambda_return(reward, value, cont, gamma, lam):
     """Bootstrapped lambda-returns over an imagined trajectory. Tensors are [H, B]."""
+    reward, value, cont = reward.float(), value.float(), cont.float()
     horizon = reward.shape[0]
     out = [None] * horizon
     nxt = value[-1]
@@ -112,22 +118,26 @@ class ImaginationActorCritic(nn.Module):
 
         with torch.no_grad():
             reward = wm.reward_mean(feat)
-            cont = wm.cont_prob(feat)
+            cont = wm.cont_prob(feat).float()
         value = self.critic.value(feat)
-        ret = lambda_return(reward, value.detach(), cont, cfg.gamma, cfg.lam)
+        # The lambda-return recursion chains `horizon` multiply-accumulates; run it in
+        # fp32 so the bootstrap does not drift over a 15-step imagined rollout.
+        with fp32():
+            ret = lambda_return(reward, value.detach(), cont, cfg.gamma, cfg.lam)
 
         # Discount by the model's own survival probability so imagined steps past a
         # predicted crash barely count.
         weight = torch.cumprod(
             torch.cat([torch.ones_like(cont[:1]), cfg.gamma * cont[:-1]], 0), 0
-        ).detach()
+        ).detach().float()
 
         self.norm.update(ret)
-        adv = self.norm(ret - value.detach())
         dist = self.actor.dist(feat)
-        logp = dist.log_prob(actions)
-        entropy = dist.entropy()
-        actor_loss = -(weight * (logp * adv.detach() + cfg.entropy_coef * entropy)).mean()
+        with fp32():
+            adv = self.norm(ret - value.float().detach())
+            logp = dist.log_prob(actions.float())
+            entropy = dist.entropy()
+            actor_loss = -(weight * (logp * adv.detach() + cfg.entropy_coef * entropy)).mean()
 
         critic_dist = self.critic.dist(feat)
         critic_loss = -critic_dist.log_prob(ret.detach())

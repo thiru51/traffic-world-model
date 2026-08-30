@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from twm.utils.device import fp32
+
 
 def symlog(x):
     return torch.sign(x) * torch.log1p(x.abs())
@@ -61,6 +63,7 @@ class CNNEncoder(nn.Module):
     def forward(self, x):
         lead = x.shape[:-3]
         x = x.reshape(-1, *x.shape[-3:])
+        x = x.contiguous(memory_format=torch.channels_last)
         x = self.net(x)
         return x.reshape(*lead, -1)
 
@@ -85,6 +88,7 @@ class CNNDecoder(nn.Module):
         lead = feat.shape[:-1]
         x = self.linear(feat.reshape(-1, feat.shape[-1]))
         x = x.reshape(-1, self.depth * 8, 4, 4)
+        x = x.contiguous(memory_format=torch.channels_last)
         x = self.net(x)
         return x.reshape(*lead, *x.shape[-3:])
 
@@ -102,10 +106,17 @@ class TwoHotSymlog:
         self.bins = bins
 
     def mean(self):
-        probs = torch.softmax(self.logits, -1)
-        return symexp((probs * self.bins).sum(-1))
+        with fp32():
+            probs = torch.softmax(self.logits.float(), -1)
+            return symexp((probs * self.bins.float()).sum(-1))
 
     def log_prob(self, x):
+        # 255-way log-softmax against a two-hot target: in bf16 the logsumexp over 255
+        # bins rounds away exactly the differences the reward head is trying to learn.
+        with fp32():
+            return self._log_prob(x.float())
+
+    def _log_prob(self, x):
         x = symlog(x)
         below = (self.bins <= x[..., None]).sum(-1) - 1
         above = len(self.bins) - (self.bins > x[..., None]).sum(-1)
@@ -121,7 +132,8 @@ class TwoHotSymlog:
             F.one_hot(below, len(self.bins)) * w_below
             + F.one_hot(above, len(self.bins)) * w_above
         )
-        log_pred = self.logits - torch.logsumexp(self.logits, -1, keepdim=True)
+        logits = self.logits.float()
+        log_pred = logits - torch.logsumexp(logits, -1, keepdim=True)
         return (target * log_pred).sum(-1)
 
 

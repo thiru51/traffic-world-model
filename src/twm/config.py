@@ -1,13 +1,17 @@
+import argparse
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import yaml
+
+from twm.utils.device import MODEL_SIZES, apply_model_size
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
 class ModelConfig:
+    size: str = "s"
     cnn_depth: int = 24
     deter: int = 512
     stoch: int = 32
@@ -59,7 +63,8 @@ class DataConfig:
 @dataclass
 class TrainConfig:
     steps: int = 3000
-    batch_size: int = 16
+    # 0 means "pick from free VRAM at startup"; any positive value is taken literally.
+    batch_size: int = 0
     seq_len: int = 50
     lr: float = 1e-4
     ac_lr: float = 3e-5
@@ -68,13 +73,16 @@ class TrainConfig:
     ac_grad_clip: float = 100.0
     weight_decay: float = 0.0
     amp: bool = True
+    compile: bool = False
+    tf32: bool = True
+    cudnn_benchmark: bool = True
     grad_checkpoint: bool = False
     train_actor_critic: bool = True
     log_every: int = 25
     ckpt_every: int = 500
     seed: int = 0
     out_dir: str = "checkpoints/run1"
-    device: str = "cuda"
+    device: str = "auto"
 
 
 @dataclass
@@ -129,3 +137,61 @@ def parse_cli_overrides(args):
 
 def config_to_dict(cfg):
     return asdict(cfg)
+
+
+def common_parser(description):
+    """Flags shared by every entry point.
+
+    Dotted `--section.key=value` overrides still work alongside these and are applied
+    last, so `--batch-size 32 --train.batch_size=8` ends up at 8. The named flags exist
+    because they are the ones you actually reach for at the command line.
+    """
+    p = argparse.ArgumentParser(description=description)
+    p.add_argument("--config", default=None, help="YAML config (default configs/default.yaml)")
+    p.add_argument("--device", default=None, help="cuda | cuda:1 | cpu | auto (default auto)")
+    p.add_argument("--batch-size", type=int, default=None, help="0 = auto-scale from free VRAM")
+    p.add_argument("--seq-len", type=int, default=None, help="timesteps per training sequence")
+    p.add_argument("--model-size", choices=list(MODEL_SIZES), default=None)
+    p.add_argument("--steps", type=int, default=None, help="gradient steps")
+    p.add_argument("--out-dir", default=None)
+    p.add_argument("--seed", type=int, default=None)
+    amp = p.add_mutually_exclusive_group()
+    amp.add_argument("--amp", dest="amp", action="store_true", default=None)
+    amp.add_argument("--no-amp", dest="amp", action="store_false")
+    p.add_argument(
+        "--compile",
+        dest="compile",
+        action="store_true",
+        default=None,
+        help="torch.compile the world model (off by default: slow first step, few gains "
+        "on runs this short)",
+    )
+    return p
+
+
+def config_from_args(argv, description="", add_args=None):
+    p = common_parser(description)
+    if add_args is not None:
+        add_args(p)
+    args, rest = p.parse_known_args(list(argv))
+
+    cfg = load_config(args.config)
+    if args.model_size:
+        apply_model_size(cfg, args.model_size)
+        cfg.model.size = args.model_size
+    for flag, section, key in [
+        ("device", "train", "device"),
+        ("batch_size", "train", "batch_size"),
+        ("seq_len", "train", "seq_len"),
+        ("steps", "train", "steps"),
+        ("out_dir", "train", "out_dir"),
+        ("seed", "train", "seed"),
+        ("amp", "train", "amp"),
+        ("compile", "train", "compile"),
+    ]:
+        val = getattr(args, flag)
+        if val is not None:
+            setattr(getattr(cfg, section), key, val)
+
+    _merge(cfg, parse_cli_overrides(rest))
+    return cfg, args

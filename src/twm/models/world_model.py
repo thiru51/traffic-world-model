@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from twm.models.nets import CNNDecoder, CNNEncoder, TwoHotSymlog, make_bins, mlp
 from twm.models.rssm import RSSM
+from twm.utils.device import fp32
 
 
 class WorldModel(nn.Module):
@@ -33,6 +34,13 @@ class WorldModel(nn.Module):
         self.cont_head = mlp(feat, cfg.hidden, 1, layers=2)
         self.register_buffer("bins", make_bins(cfg.n_bins))
 
+    def to_channels_last(self):
+        """Call after .to(device). NHWC-strided conv weights let cuDNN pick its tensor-core
+        kernels instead of transposing every activation on the way in."""
+        self.encoder.to(memory_format=torch.channels_last)
+        self.decoder.to(memory_format=torch.channels_last)
+        return self
+
     def loss(self, batch):
         obs, action, reward, cont, is_first = (
             batch["obs"],
@@ -48,14 +56,19 @@ class WorldModel(nn.Module):
         recon = self.decoder(feat)
         # Unit-variance Gaussian log-likelihood up to a constant, summed over pixels -
         # the image term has to outweigh the scalar heads or the latent stops encoding
-        # the scene at all.
-        image_loss = 0.5 * ((recon - obs) ** 2).sum(dim=(-3, -2, -1)).mean()
+        # the scene at all. Accumulated in fp32: this is a sum over ~20k elements per
+        # frame and bf16 runs out of mantissa long before the sum finishes.
+        with fp32():
+            err = recon.float() - obs.float()
+            image_loss = 0.5 * (err**2).sum(dim=(-3, -2, -1)).mean()
+            recon_mse = (err**2).mean().detach()
 
         reward_dist = TwoHotSymlog(self.reward_head(feat), self.bins)
         reward_loss = -reward_dist.log_prob(reward).mean()
 
         cont_logit = self.cont_head(feat).squeeze(-1)
-        cont_loss = F.binary_cross_entropy_with_logits(cont_logit, cont).mean()
+        with fp32():
+            cont_loss = F.binary_cross_entropy_with_logits(cont_logit.float(), cont.float()).mean()
 
         kl, dyn, rep = self.rssm.kl_loss(
             post, prior, self.cfg.kl_free, self.cfg.dyn_scale, self.cfg.rep_scale
@@ -73,7 +86,7 @@ class WorldModel(nn.Module):
             "wm/cont": cont_loss.detach(),
             "wm/kl_dyn": dyn.detach(),
             "wm/kl_rep": rep.detach(),
-            "wm/recon_mse": ((recon - obs) ** 2).mean().detach(),
+            "wm/recon_mse": recon_mse,
         }
         return total, post, metrics
 

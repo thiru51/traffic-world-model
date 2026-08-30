@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.distributions import Independent, OneHotCategorical
 
 from twm.models.nets import mlp
+from twm.utils.device import fp32
 
 
 class LayerNormGRUCell(nn.Module):
@@ -65,26 +66,31 @@ class RSSM(nn.Module):
         }
 
     def _sample(self, logits, sample=True):
-        dist = self.get_dist(logits)
-        if not sample:
-            probs = torch.softmax(logits, -1)
-            return F.one_hot(probs.argmax(-1), self.classes).float()
-        draw = dist.sample()
-        # Straight-through: the forward pass carries a hard one-hot, the backward pass
-        # sees the gradient of the probabilities. Discrete latents cannot be
-        # reparameterised, and this estimator is what makes them trainable end to end.
-        probs = dist.base_dist.probs
-        return draw + probs - probs.detach()
+        # fp32 throughout: the straight-through estimator subtracts two nearly identical
+        # tensors (draw + probs - probs.detach()), and in bf16 the residual gradient path
+        # loses most of its significant bits. This is the single most precision-sensitive
+        # line in the model.
+        with fp32():
+            logits = logits.float()
+            if not sample:
+                probs = torch.softmax(logits, -1)
+                return F.one_hot(probs.argmax(-1), self.classes).float()
+            dist = self.get_dist(logits)
+            draw = dist.sample()
+            probs = dist.base_dist.probs
+            return draw + probs - probs.detach()
 
     def get_dist(self, logits):
-        probs = torch.softmax(logits, -1)
-        if self.unimix > 0:
-            # Mixing in a uniform floor keeps every class at nonzero probability. Without
-            # it a class can collapse to exactly 0, the KL to the prior blows up, and
-            # training destabilises - this is DreamerV3's fix and it is cheap.
-            probs = (1 - self.unimix) * probs + self.unimix / self.classes
-            logits = torch.log(probs)
-        return Independent(OneHotCategorical(logits=logits), 1)
+        with fp32():
+            logits = logits.float()
+            probs = torch.softmax(logits, -1)
+            if self.unimix > 0:
+                # Mixing in a uniform floor keeps every class at nonzero probability.
+                # Without it a class can collapse to exactly 0, the KL to the prior blows
+                # up, and training destabilises - DreamerV3's fix, and it is cheap.
+                probs = (1 - self.unimix) * probs + self.unimix / self.classes
+                logits = torch.log(probs)
+            return Independent(OneHotCategorical(logits=logits), 1)
 
     def img_step(self, prev_state, prev_action, sample=True):
         x = torch.cat([prev_state["stoch"].flatten(-2), prev_action], -1)
@@ -133,16 +139,21 @@ class RSSM(nn.Module):
         return torch.cat([state["deter"], state["stoch"].flatten(-2)], -1)
 
     def kl_loss(self, post, prior, free=1.0, dyn_scale=0.5, rep_scale=0.1):
-        sg = lambda d: {k: v.detach() for k, v in d.items()}
-        dyn = self._kl(sg(post)["logit"], prior["logit"])
-        rep = self._kl(post["logit"], sg(prior)["logit"])
-        # Free bits are applied to the summed KL, so the model is not penalised for the
-        # first nat of information it puts in the latent - only for exceeding it.
-        dyn = dyn.clamp(min=free)
-        rep = rep.clamp(min=free)
-        return dyn_scale * dyn.mean() + rep_scale * rep.mean(), dyn.mean(), rep.mean()
+        # KL between two 32x32 categoricals is a sum of 32 terms of p*log(p/q); under
+        # bf16 the log ratio is where the free-bits clamp starts firing on rounding noise
+        # instead of on real information, so the whole term is computed in fp32.
+        with fp32():
+            sg = lambda d: {k: v.detach().float() for k, v in d.items()}
+            dyn = self._kl(sg(post)["logit"], prior["logit"].float())
+            rep = self._kl(post["logit"].float(), sg(prior)["logit"])
+            # Free bits are applied to the summed KL, so the model is not penalised for
+            # the first nat of information it puts in the latent - only for exceeding it.
+            dyn = dyn.clamp(min=free)
+            rep = rep.clamp(min=free)
+            return dyn_scale * dyn.mean() + rep_scale * rep.mean(), dyn.mean(), rep.mean()
 
     def _kl(self, logits_q, logits_p):
-        q = self.get_dist(logits_q)
-        p = self.get_dist(logits_p)
-        return torch.distributions.kl_divergence(q, p)
+        with fp32():
+            q = self.get_dist(logits_q)
+            p = self.get_dist(logits_p)
+            return torch.distributions.kl_divergence(q, p)
