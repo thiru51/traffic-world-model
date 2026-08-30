@@ -56,7 +56,7 @@ class DataConfig:
     dir: str = "data/metadrive64"
     episodes: int = 60
     max_steps_per_episode: int = 250
-    action_noise: float = 0.25
+    action_noise: float = 0.35
     seed: int = 0
 
 

@@ -3,7 +3,7 @@ import time
 
 import numpy as np
 
-from twm.config import config_to_dict, load_config, parse_cli_overrides
+from twm.config import config_from_args, config_to_dict
 from twm.data.buffer import EpisodeStore
 from twm.envs.scripted_policy import NoisyLaneFollower
 from twm.envs.traffic_env import TrafficSceneEnv
@@ -91,7 +91,15 @@ def collect(cfg):
 
 
 def main():
-    cfg = load_config(overrides=parse_cli_overrides(sys.argv[1:]))
+    def add_args(p):
+        p.add_argument("--episodes", type=int, default=None)
+        p.add_argument("--data-dir", default=None)
+
+    cfg, args = config_from_args(sys.argv[1:], "collect scripted driving episodes", add_args)
+    if args.episodes is not None:
+        cfg.data.episodes = args.episodes
+    if args.data_dir is not None:
+        cfg.data.dir = args.data_dir
     collect(cfg)
 
 

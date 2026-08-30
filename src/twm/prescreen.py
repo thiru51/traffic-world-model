@@ -18,10 +18,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from twm.config import load_config, parse_cli_overrides
+from twm.config import config_from_args
 from twm.envs.traffic_env import TrafficSceneEnv
 from twm.models.actor_critic import ImaginationActorCritic
 from twm.models.world_model import WorldModel
+from twm.utils.device import resolve_device, setup_backends
 from twm.utils.run import device_info, seed_everything, write_json
 
 # (steering, throttle) held constant for the whole imagined horizon. Deliberately coarse:
@@ -103,7 +104,8 @@ class Prescreener:
 
 @torch.no_grad()
 def run_episodes(cfg, ckpt_path, episodes=5, max_steps=250, mode="prescreen", n_actor_samples=16):
-    device = torch.device(cfg.train.device if torch.cuda.is_available() else "cpu")
+    device = resolve_device(cfg.train.device)
+    setup_backends(device, cfg.train.tf32, cfg.train.cudnn_benchmark)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     wm = WorldModel(tuple(ckpt["obs_shape"]), ckpt["action_dim"], cfg.model).to(device).eval()
     wm.load_state_dict(ckpt["wm"])
@@ -178,14 +180,21 @@ def run_episodes(cfg, ckpt_path, episodes=5, max_steps=250, mode="prescreen", n_
 
 
 def main():
-    cfg = load_config(overrides=parse_cli_overrides(sys.argv[1:]))
+    def add_args(p):
+        p.add_argument("--episodes", type=int, default=5)
+        p.add_argument("--max-steps", type=int, default=250)
+        p.add_argument("--actor-samples", type=int, default=16)
+        p.add_argument("--checkpoint", default=None)
+
+    cfg, args = config_from_args(sys.argv[1:], "imagine-then-act action pre-screening", add_args)
     seed_everything(cfg.train.seed)
-    ckpt = Path(cfg.train.out_dir) / "latest.pt"
+    ckpt = Path(args.checkpoint) if args.checkpoint else Path(cfg.train.out_dir) / "latest.pt"
     if not ckpt.exists():
         raise FileNotFoundError(f"{ckpt} not found; run `pixi run train` first")
 
-    screened = run_episodes(cfg, ckpt, mode="prescreen")
-    direct = run_episodes(cfg, ckpt, mode="actor_only")
+    kw = dict(episodes=args.episodes, max_steps=args.max_steps, n_actor_samples=args.actor_samples)
+    screened = run_episodes(cfg, ckpt, mode="prescreen", **kw)
+    direct = run_episodes(cfg, ckpt, mode="actor_only", **kw)
     out = {"prescreen": screened, "actor_only": direct}
     write_json(Path(cfg.train.out_dir) / "prescreen.json", out)
 

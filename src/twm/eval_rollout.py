@@ -20,9 +20,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from twm.config import config_to_dict, load_config, parse_cli_overrides
+from twm.config import config_from_args
 from twm.data.buffer import SequenceSampler
 from twm.models.world_model import WorldModel
+from twm.utils.device import resolve_device, setup_backends
 from twm.utils.run import device_info, seed_everything, write_json
 
 CONTEXT = 5
@@ -68,7 +69,8 @@ def centroid_error_px(pred, target, thresh=0.0):
 
 @torch.no_grad()
 def evaluate(cfg, ckpt_path, n_windows=64, context=CONTEXT, horizon=HORIZON, save_frames=True):
-    device = torch.device(cfg.train.device if torch.cuda.is_available() else "cpu")
+    device = resolve_device(cfg.train.device)
+    setup_backends(device, cfg.train.tf32, cfg.train.cudnn_benchmark)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     data = SequenceSampler(
         cfg.data.dir, context + horizon, device=str(device), holdout=HOLDOUT_EPISODES
@@ -236,12 +238,18 @@ def _save_strip(strip, path):
 
 
 def main():
-    cfg = load_config(overrides=parse_cli_overrides(sys.argv[1:]))
+    def add_args(p):
+        p.add_argument("--windows", type=int, default=64, help="evaluation windows to average")
+        p.add_argument("--context", type=int, default=CONTEXT)
+        p.add_argument("--horizon", type=int, default=HORIZON)
+        p.add_argument("--checkpoint", default=None)
+
+    cfg, args = config_from_args(sys.argv[1:], "open-loop imagination fidelity", add_args)
     seed_everything(cfg.train.seed)
-    ckpt = Path(cfg.train.out_dir) / "latest.pt"
+    ckpt = Path(args.checkpoint) if args.checkpoint else Path(cfg.train.out_dir) / "latest.pt"
     if not ckpt.exists():
         raise FileNotFoundError(f"{ckpt} not found; run `pixi run train` first")
-    res = evaluate(cfg, ckpt)
+    res = evaluate(cfg, ckpt, n_windows=args.windows, context=args.context, horizon=args.horizon)
     print("\n=== open-loop rollout fidelity ===")
     for k, v in res["summary"].items():
         print(f"{k}: {v}")

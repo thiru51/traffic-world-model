@@ -1,7 +1,7 @@
-[project]
+[workspace]
 name = "traffic-world-model"
 version = "0.1.0"
-description = "Compact latent world model (DreamerV3-style RSSM) for traffic-scene anticipation on a single 12GB consumer GPU"
+description = "Compact latent world model (DreamerV3-style RSSM) for traffic-scene anticipation on a single consumer GPU"
 authors = ["Thiru <fearlesspirate007@gmail.com>"]
 channels = ["conda-forge", "pytorch", "nvidia"]
 platforms = ["linux-64"]
@@ -15,6 +15,8 @@ PYTHONPATH = "src"
 # MetaDrive's top-down observation renders through pygame's software surface. Without
 # this SDL forces an X11 connection and dies on headless boxes / over SSH.
 SDL_VIDEODRIVER = "dummy"
+# Figures are written to files, never shown; without this matplotlib looks for a display.
+MPLBACKEND = "Agg"
 
 [pypi-dependencies]
 torch = { version = ">=2.5,<2.9", index = "https://download.pytorch.org/whl/cu124" }
@@ -26,8 +28,10 @@ matplotlib = "*"
 imageio = "*"
 
 [tasks]
+check-gpu = "python scripts/check_gpu.py"
 smoke = "python -m twm.smoke"
 collect-data = "python -m twm.collect"
 train = "python -m twm.train"
 eval-rollout = "python -m twm.eval_rollout"
 prescreen = "python -m twm.prescreen"
+plot = "python scripts/plot_curves.py checkpoints/run1 results/loss_curves.png"
