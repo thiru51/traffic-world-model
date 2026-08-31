@@ -104,9 +104,10 @@ def auto_batch_size(device, seq_len=50, model_size="s", floor=4, ceiling=128):
     """Pick a sequence-batch size from whatever VRAM is actually free right now.
 
     Calibrated against a measured point rather than a formula: 'S' at batch 16 / seq 50
-    peaks at ~2.9 GiB of torch allocation on this repo's 64x64x5 observations (see
-    results/train_summary.json). Everything below scales linearly off that and keeps
-    ~35% headroom for fragmentation and the imagination pass.
+    peaks at ~2.9 GiB of torch allocation on this repo's 64x64x5 observations.
+    Everything below scales linearly off that and keeps ~35% headroom for fragmentation
+    and the imagination pass. A finished run writes the equivalent measurement for its
+    own settings to <out_dir>/train_summary.json.
     """
     if device.type != "cuda":
         return floor
