@@ -120,8 +120,8 @@ pixi run python -m twm.eval_rollout --windows 256 \
 Read `imagined_mse_step15` against `persistence_mse_step15` in the printed summary. That
 comparison is the whole project:
 
-- imagined clearly **below** persistence at step 15 → the model predicts. Continue.
-- imagined at or **above** persistence → the model has learned to copy the last frame, not
+- imagined clearly **below** persistence at step 15 -> the model predicts. Continue.
+- imagined at or **above** persistence -> the model has learned to copy the last frame, not
   to predict. Nothing further is worth doing until that is fixed. Look at more training,
   more data, or a longer sequence length before anything else.
 
