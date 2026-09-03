@@ -18,7 +18,13 @@ env/
 *.pt
 *.pth
 *.ckpt
-/checkpoints/
+# The 53 MB weights stay out -- they would bloat every clone. Everything else under
+# checkpoints/ is small (628 KB total) and is the evidence for RESULTS.md: the training
+# config, the per-step metrics, the fidelity JSON and the comparison figure.
+/checkpoints/*
+!/checkpoints/*/
+/checkpoints/*/*.pt
+/checkpoints/*/*.pth
 /runs/
 wandb/
 lightning_logs/

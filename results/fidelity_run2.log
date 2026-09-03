@@ -1,0 +1,21 @@
+[data] 393 train / 6 holdout episodes, 66144 transitions, 58677 valid windows, 1293 MiB held in gpu
+
+=== open-loop rollout fidelity ===
+imagined_mse_mean: 0.0008630148367956281
+persistence_mse_mean: 0.003416646970435977
+posterior_mse_mean: 0.000483824493130669
+imagined_psnr_db_mean: 30.639817379081023
+persistence_psnr_db_mean: 24.66399892934414
+posterior_psnr_db_mean: 33.153121496941885
+imagined_mse_step15: 0.0012239034986123443
+persistence_mse_step15: 0.004785608034580946
+imagined_iou_mean: 0.38085946440696716
+persistence_iou_mean: 0.322617769241333
+imagined_centroid_err_px_mean: 1.2165127992630005
+persistence_centroid_err_px_mean: 1.5693260431289673
+reward_abs_err_mean: 0.043772317469120026
+
+per-step imagined MSE: [0.00049, 0.00053, 0.00059, 0.00065, 0.00071, 0.00076, 0.00081, 0.00086, 0.00092, 0.00098, 0.00104, 0.00108, 0.00112, 0.00117, 0.00122]
+per-step persistence MSE: [0.00075, 0.00144, 0.002, 0.00246, 0.00287, 0.00323, 0.00352, 0.00378, 0.004, 0.00419, 0.00436, 0.00451, 0.00463, 0.00472, 0.00479]
+
+wrote checkpoints/run2/rollout_fidelity.json

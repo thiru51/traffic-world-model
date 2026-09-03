@@ -37,9 +37,20 @@ def psnr(mse):
     return -10.0 * np.log10(np.maximum(mse, 1e-12))
 
 
-def occupancy_iou(pred, target, thresh=0.0):
-    """IoU of the thresholded frames. Pixels are centred on zero, so >0 means 'brighter
-    than mid grey', which on MetaDrive's top-down channels is where the drawn geometry is."""
+# Channel 0 is the static road network. It is identical in every frame of an episode, so
+# including it rewards a model for copying the background and says nothing about whether it
+# predicted where the traffic went. It is also the channel that breaks the threshold: its
+# maximum raw value is 126/255, which centres to -0.006 and never clears thresh=0.0, while
+# an undertrained decoder does spray stray pixels above it -- inflating the union and
+# collapsing IoU. Both problems disappear by scoring the traffic channels only.
+TRAFFIC_CHANNELS = slice(1, None)
+
+
+def occupancy_iou(pred, target, thresh=0.0, channels=TRAFFIC_CHANNELS):
+    """IoU of the thresholded frames over the moving-traffic channels. Pixels are centred on
+    zero, so >0 means 'brighter than mid grey', which is where the drawn vehicles are."""
+    pred = pred[..., channels, :, :]
+    target = target[..., channels, :, :]
     p = pred > thresh
     t = target > thresh
     inter = (p & t).sum(dim=(-3, -2, -1)).float()
@@ -47,8 +58,11 @@ def occupancy_iou(pred, target, thresh=0.0):
     return inter / union
 
 
-def centroid_error_px(pred, target, thresh=0.0):
-    """Pixel-space centroid displacement of the occupied region, per frame."""
+def centroid_error_px(pred, target, thresh=0.0, channels=TRAFFIC_CHANNELS):
+    """Pixel-space centroid displacement of the occupied region, per frame. Traffic channels
+    only, for the same reason as occupancy_iou."""
+    pred = pred[..., channels, :, :]
+    target = target[..., channels, :, :]
     h, w = pred.shape[-2:]
     ys = torch.arange(h, device=pred.device).float()
     xs = torch.arange(w, device=pred.device).float()
@@ -177,7 +191,10 @@ def evaluate(cfg, ckpt_path, n_windows=64, context=CONTEXT, horizon=HORIZON, sav
         },
     }
 
-    out_dir = Path(cfg.train.out_dir)
+    # Write beside the checkpoint that was actually scored, not beside cfg.train.out_dir.
+    # Those differ whenever --checkpoint points at another run, and taking the config path
+    # silently drops run 2's results into run 1's directory, overwriting them.
+    out_dir = Path(ckpt_path).parent if ckpt_path else Path(cfg.train.out_dir)
     write_json(out_dir / "rollout_fidelity.json", results)
     if strip is not None:
         _save_strip(strip, out_dir / "rollout_comparison.png")
@@ -255,7 +272,7 @@ def main():
         print(f"{k}: {v}")
     print(f"\nper-step imagined MSE: {[round(x, 5) for x in res['per_step']['imagined_mse']]}")
     print(f"per-step persistence MSE: {[round(x, 5) for x in res['per_step']['persistence_mse']]}")
-    print(f"\nwrote {Path(cfg.train.out_dir) / 'rollout_fidelity.json'}")
+    print(f"\nwrote {Path(ckpt).parent / 'rollout_fidelity.json'}")
 
 
 if __name__ == "__main__":

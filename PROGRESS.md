@@ -1,11 +1,17 @@
 # Progress
 
-Real state of the project. `[x]` means done and verified. `[ ]` means not done.
+**Summary: the model is trained and the central claim is measured, and it holds.**
+15,000 gradient steps on 400 collected MetaDrive episodes, then an open-loop fidelity
+evaluation on 6 held-out episodes: imagined 15-step rollouts reach MSE 0.000863 against a
+persistence baseline at 0.003417 -- **4.0x better**, +5.98 dB PSNR, and the margin widens
+with horizon (imagined error grows 2.5x over fifteen steps, persistence 6.4x).
 
-Last updated after the first training run (`logs/train_run1.log`, 2,725 steps, stopped
-before the configured 3,000).
+Two bugs had to be fixed before the measurement meant anything: the occupancy metric
+thresholded the static road channel out of existence, and results were written to the wrong
+run directory. Both are described in [RESULTS.md](RESULTS.md).
 
----
+**Still unrun:** the `prescreen.py` imagine-then-act loop, which is where accuracy would be
+shown to convert into better decisions, and the batch-size sweep.
 
 ## Environment and tooling
 

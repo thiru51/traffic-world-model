@@ -24,13 +24,24 @@ DreamerV3, and it is not a driving policy anyone should take seriously as drivin
 
 | Piece | State |
 |---|---|
-| Data collection | Done. 200 scripted episodes, 32,643 transitions, on disk. |
-| Model code | Done. 2,630 lines of Python across 23 files. Imports clean, smoke test passes. |
-| Training | **One early run only.** 2,725 gradient steps of a configured 3,000, ~17 minutes, then stopped. |
-| Convergence | **No.** The loss is still trending down and is noisy step to step. |
-| Fidelity evaluation | **Not yet run.** The script exists and executes; no result has been produced from it. |
+| Data collection | Done. 400 scripted episodes, 66,144 transitions, on disk. |
+| Model code | Done. Imports clean, smoke test passes. |
+| Training | Done. 15,000 gradient steps on 393 training episodes, 3,672 s. |
+| Convergence | Partially. Loss fell 366.9 -> 7.6 and reconstruction MSE 0.035 -> 0.0005, still trending down at the end. |
+| Fidelity evaluation | **Done, and positive.** Imagined 15-step rollouts are 4.0x more accurate than persistence on held-out episodes. See [RESULTS.md](RESULTS.md). |
 | Imagine-then-act (`prescreen.py`) | **Not yet run** end to end against the trained checkpoint. |
 | Batch-size sweep | **Not yet run.** No sweep table exists. |
+
+**The headline.** On 6 held-out episodes and 200 windows, imagined rollouts reach MSE
+0.000863 against persistence at 0.003417 -- 4.0x better on average, 3.9x at the 15-step
+horizon, +5.98 dB PSNR. More importantly the advantage *widens* with horizon: over fifteen
+steps the imagined error grows 2.5x while persistence grows 6.4x. Full table, the two
+metric bugs that had to be fixed first, and the honest limits are in
+[RESULTS.md](RESULTS.md).
+
+**What it still does not show.** Low pixel error is not the same as better decisions. The
+`prescreen.py` imagine-then-act loop is where that would be demonstrated and it has not
+been run.
 
 The numbers in the [Compute scoping](#compute-scoping-what-it-actually-costs) section
 below are throughput and memory measurements from that one run. They say what this model

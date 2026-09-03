@@ -1,10 +1,26 @@
-# Handoff
+# Handoff notes
 
-For whoever picks this up next, including future me. Read `README.md` first for what the
-project is. This file is about what state it is in, what to do next, what is broken or
-suspicious, and why things were built the way they were.
+For whoever picks this up next. The README explains the idea, [RESULTS.md](RESULTS.md) has
+the measured numbers. This file is about the state of the code and the decisions behind it.
 
----
+## Where things stand
+
+Trained and measured. 400 episodes collected, 15,000 gradient steps (run2), and the
+open-loop fidelity evaluation has been run properly on held-out episodes: **imagined
+15-step rollouts are 4.0x more accurate than persistence**, and the advantage grows with
+horizon rather than decaying. That was the project's central claim and it holds.
+
+Two things were fixed to get there, both worth knowing because both silently corrupted
+results before:
+
+- `occupancy_iou` and `centroid_error_px` thresholded at 0.0 on centred observations, where
+  channel 0 (the static road) peaks at 126/255 = -0.006 and never cleared it. They now score
+  `TRAFFIC_CHANNELS = slice(1, None)`, which is also the metric you actually want.
+- `eval_rollout.py` wrote its JSON to `cfg.train.out_dir` no matter which checkpoint was
+  scored, so evaluating run2 overwrote run1's results. It now writes beside the checkpoint.
+
+The next real step is `prescreen.py`: low pixel error does not prove better decisions, and
+that loop is where the conversion would be demonstrated.
 
 ## Hardware, stated once so it is not wrong anywhere
 
